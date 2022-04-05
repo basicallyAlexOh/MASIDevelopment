@@ -1,0 +1,9 @@
+checkpoints/
+models/
+tmp/
+logs/
+configs/
+env/
+__pycache__
+.idea/
+.ipynb_checkpoints/
