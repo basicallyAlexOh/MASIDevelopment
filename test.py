@@ -50,7 +50,7 @@ def test(config,
         class_means = torch.mean(test_dices, dim=0)
         mean = torch.mean(test_dices)
         test_dices_df = DataFrame(test_dices.detach().cpu().numpy())
-        # test_dices_df.to_csv(out_path)
+        test_dices_df.to_csv(out_path)
 
     # Log best dice
     # print(f"All scores: {test_dices_df}")

@@ -10,9 +10,14 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     ScaleIntensityRanged,
     Spacingd,
-    EnsureTyped,
+    AddChanneld,
+    RandShiftIntensityd,
+    RandAffined,
+    ToTensord,
+    EnsureTyped
 )
 from monai.data import DataLoader, Dataset
+import numpy as np
 import os
 
 # unwrap directory paths
@@ -49,9 +54,10 @@ def train_dataloader(config, train_images):
 
     train_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        # EnsureChannelFirstd(keys=["image", "label"]),
+        AddChanneld(keys=["image", "label"]),
         Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=hu_window[0], a_max=hu_window[1], b_min=0.0, b_max=1.0,
                              clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -65,12 +71,24 @@ def train_dataloader(config, train_images):
             image_key="image",
             image_threshold=0,
         ),
-        EnsureTyped(keys=["image", "label"]),
+        RandShiftIntensityd(
+            keys=["image"],
+            offsets=0.10,
+            prob=0.20,
+        ),
+        RandAffined(
+            keys=['image', 'label'],
+            mode=('bilinear', 'nearest'),
+            prob=1.0, spatial_size=CROP_SHAPE,
+            rotate_range=(0, 0, np.pi / 30),
+            scale_range=(0.1, 0.1, 0.1)),
+        ToTensord(keys=["image", "label"]),
     ])
 
     # Initialize Dataset
     train_ds = Dataset(data=train_files, transform=train_transforms)
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=config["num_workers"])
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                              num_workers=config["num_workers"], pin_memory=True)
 
     print(f"Training sample size: {len(train_ds)}")
 
@@ -103,17 +121,19 @@ def val_dataloader(config, val_images):
     # Transforms
     val_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        # EnsureChannelFirstd(keys=["image", "label"]),
+        AddChanneld(keys=["image", "label"]),
         Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=hu_window[0], a_max=hu_window[1], b_min=0.0, b_max=1.0,
                                  clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
-        EnsureTyped(keys=["image", "label"]),
+        # EnsureTyped(keys=["image", "label"]),
+        ToTensord(keys=["image", "label"]),
     ])
 
     val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = DataLoader(val_ds, batch_size=1, num_workers=config["num_workers"])
+    val_loader = DataLoader(val_ds, batch_size=1, num_workers=2)
     print(f"Validation sample size: {len(val_ds)}")
 
     return val_loader

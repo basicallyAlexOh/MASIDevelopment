@@ -1,38 +1,41 @@
-"""Lobe segmentation with MONAI"""
-
+"""
+5-fold cross validation:
+Run separate train and test on all fold combinations
+"""
+import argparse
 from monai.utils import set_determinism
 
 from monai.metrics import DiceMetric
 from monai.losses import DiceLoss, DiceCELoss
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import random_split
 import torch
 import os
 import sys
-import yaml
 import random
-import glob
+from itertools import chain
 from pathlib import Path
 import MetricLogger
 from dataloader import train_dataloader, val_dataloader
 from models import unet256, unet512, unet1024
 from train import train
 from test import test
+from luna16_preprocess import get_kfolds
+from main import load_config
 
-def run_train(config, config_id):
+def train_one_fold(config, config_id, k):
+    k = int(k)
+    print(f"Training on all folds except {k}")
     # unwrap directory paths
-    MODEL_DIR = os.path.join(config["model_dir"], config_id)
+    MODEL_DIR = os.path.join(config["model_dir"], config_id, f"fold{k}")
     CHECKPOINT_DIR = os.path.join(config["checkpoint_dir"], config_id)
-    LOG_DIR = os.path.join(config["log_dir"], config_id)
-    DATA_DIR = config["data_dir"]
+    LOG_DIR = os.path.join(config["log_dir"], config_id, f"fold{k}")
 
     # Set randomness
     set_determinism(seed=config["random_seed"])
     random.seed(config["random_seed"])
 
     # Make paths
-    Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
     Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
     Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
 
@@ -41,19 +44,15 @@ def run_train(config, config_id):
     writer = SummaryWriter(log_dir=LOG_DIR)
 
     # Load data
-    images = sorted(glob.glob(os.path.join(DATA_DIR, config["image_type"])))
-    # limit sample size if specified
-    if config["sample_size"]:
-        images = random.sample(images, config["sample_size"])
-    # split dataset into train and validation
-    val_size = int(len(images) * config["val_ratio"])
+    folds = get_kfolds(config["kfolds_path"])
+    images = [x for i, x in enumerate(folds) if i!=(k-1)] # all folds except k
+    images = [x for fold in images for x in fold] # flatten list of lists
+    val_size = int(len(folds[0]))
     random.shuffle(images)
-    val_images, train_images = images[:val_size], images[val_size:]
+    val_images, train_images  = images[:val_size], images[val_size:]
     # get dataloaders
     train_loader = train_dataloader(config, train_images)
     val_loader = val_dataloader(config, val_images)
-
-    # LABEL_SHAPE = (512, 512, 320)  # All labels have this shape, but input shapes vary
 
     # Initialize Model, Loss, and Optimizer
     device = torch.device("cuda:0")
@@ -70,14 +69,6 @@ def run_train(config, config_id):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"])
     dice_metric = DiceMetric(False, reduction="mean", get_not_nans=False)
     start_epoch = 0
-
-    # Resume training from checkpoint if indicated
-    if config["checkpoint"]:
-        print(f"Resuming training of {config_id} from {config['checkpoint']}")
-        checkpoint = torch.load(os.path.join(CHECKPOINT_DIR, config["checkpoint"]))
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
 
     # Finetune pretrained model if indicated
     if config["pretrained"]:
@@ -100,9 +91,9 @@ def run_train(config, config_id):
           CHECKPOINT_DIR,
           MODEL_DIR)
 
-def run_test(config, config_id, out_name):
-    DATA_DIR = config["test_dir"]
-    MODEL_DIR = os.path.join(config["model_dir"], config_id)
+def test_one_fold(config, config_id, out_name, k):
+    k = int(k)
+    MODEL_DIR = os.path.join(config["model_dir"], config_id, f"fold{k}")
     out_path = os.path.join(MODEL_DIR, out_name)
     model_path = os.path.join(MODEL_DIR, f"{config_id}_best_model.pth")
 
@@ -111,8 +102,9 @@ def run_test(config, config_id, out_name):
     random.seed(config["random_seed"])
 
     # Load data
-    images = sorted(glob.glob(os.path.join(DATA_DIR, config["image_type"])))
-    test_loader = val_dataloader(config, images)
+    images = get_kfolds(config["kfolds_path"])
+    test_images = images[k-1]
+    test_loader = val_dataloader(config, test_images)
 
     # Initialize Model and test metric
     device = torch.device("cuda:0")
@@ -134,20 +126,20 @@ def run_test(config, config_id, out_name):
          test_loader,
          out_path)
 
-def load_config(config_name, config_dir):
-    with open(os.path.join(config_dir, config_name)) as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-    return config
-
 if __name__ == "__main__":
-    # Training
-    # CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    # config_id = sys.argv[1]
-    # config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
-    # run_train(config, config_id)
+    # python3 cross_validation.py --config-id 0418cv_luna16 --train --test
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config-id', type=str)
+    parser.add_argument('--out-name', type=str, default='test.csv')
+    parser.add_argument('--k', type=int, default=1)
+    parser.add_argument('--train', action='store_true', default=False)
+    parser.add_argument('--test', action='store_true', default=False)
+    args = parser.parse_args()
 
-    # Validation/Test
     CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    config_id, out_name = sys.argv[1], sys.argv[2]
-    config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
-    run_test(config, config_id, out_name)
+    config = load_config(f"Config_{args.config_id}.YAML", CONFIG_DIR)
+
+    if args.train:
+        train_one_fold(config, args.config_id, args.k)
+    if args.test:
+        test_one_fold(config, args.config_id, args.out_name, args.k)

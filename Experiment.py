@@ -2,6 +2,8 @@
 import torch
 import os
 import sys
+import glob
+from pathlib import Path
 from monai.utils import set_determinism
 from monai.inferers import sliding_window_inference
 sys.path.append("/home/local/VANDERBILT/litz/github/MASILab/lobe_seg")
@@ -18,8 +20,10 @@ class Experiment():
         self.device = torch.device("cuda:0")
         self.model = model(6).to(self.device)
         set_determinism(seed=config["random_seed"])
-        self.val_loader = val_dataloader(self.config)
-        self.vis_dir = os.path.join(config["tmp_dir"], "clips")
+        images = sorted(glob.glob(os.path.join(config["test_dir"], config["image_type"])))
+        self.val_loader = val_dataloader(self.config, images)
+        self.vis_dir = os.path.join(config["tmp_dir"], "clips", config_id)
+        Path(self.vis_dir).mkdir(parents=True, exist_ok=True)
 
     def vis_checkpoint(self, checkpoint_name, nvals=1):
         """Visualize single checkpoint"""
@@ -28,6 +32,17 @@ class Experiment():
         epoch = checkpoint["epoch"]
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
+        self.vis(epoch, nvals)
+
+    def vis_model(self, model_name, nvals=1):
+        """Visualize best model"""
+        model_path = os.path.join(self.config['model_dir'], self.config_id, model_name)
+        epoch = "best"
+        self.model.load_state_dict(torch.load(model_path))
+        self.model.eval()
+        self.vis(epoch, nvals)
+
+    def vis(self, epoch, nvals):
         with torch.no_grad():
             loader = iter(self.val_loader)
             for i in range(nvals):
@@ -39,12 +54,12 @@ class Experiment():
                 np_label = val_data["label"][0, 0, :, :, :].detach().cpu().numpy()
                 output = torch.argmax(val_outputs, dim=1)[0,:,:,:].detach().cpu().numpy()
 
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{self.config_id}_{epoch}_coronal.png"), img_vrange=(0,1), clip_plane='coronal')
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{self.config_id}_{epoch}_sagittal.png"), img_vrange=(0,1), clip_plane='sagittal')
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{self.config_id}_{epoch}_axial.png"), img_vrange=(0,1), clip_plane='axial')
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{self.config_id}_{epoch}_coronal.png"), img_vrange=(0,1), clip_plane='coronal')
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{self.config_id}_{epoch}_sagittal.png"), img_vrange=(0,1), clip_plane='sagittal')
-                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{self.config_id}_{epoch}_axial.png"), img_vrange=(0,1), clip_plane='axial')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{i}_{self.config_id}_{epoch}_coronal.png"), img_vrange=(0,1), clip_plane='coronal')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{i}_{self.config_id}_{epoch}_sagittal.png"), img_vrange=(0,1), clip_plane='sagittal')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, np_label, os.path.join(self.vis_dir, f"label_{i}_{self.config_id}_{epoch}_axial.png"), img_vrange=(0,1), clip_plane='axial')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{i}_{self.config_id}_{epoch}_coronal.png"), img_vrange=(0,1), clip_plane='coronal')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{i}_{self.config_id}_{epoch}_sagittal.png"), img_vrange=(0,1), clip_plane='sagittal')
+                overlay.multiple_clip_overlay_with_mask_from_npy(np_img, output, os.path.join(self.vis_dir, f"val_{i}_{self.config_id}_{epoch}_axial.png"), img_vrange=(0,1), clip_plane='axial')
 
     def vis_checkpoints(self, checkpoint_names, nvals=1):
         """visualize multiple checkponts to observe change over epochs"""

@@ -17,8 +17,8 @@ def unet512(num_classes=6):
         spatial_dims=3,
         in_channels=1,
         out_channels=num_classes,
-        channels=(16, 32, 64, 128, 256, 512),
-        strides=(2, 2, 2, 2, 2),
+        channels=(32, 64, 128, 256, 512),
+        strides=(2, 2, 2, 2),
         num_res_units=2,
         norm=Norm.BATCH,
     )

@@ -3,6 +3,7 @@ models/
 tmp/
 logs/
 configs/
+peter/
 env/
 __pycache__
 .idea/

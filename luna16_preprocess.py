@@ -10,7 +10,9 @@ import numpy as np
 from scipy import ndimage as ndi
 import skimage.measure
 from tqdm import tqdm
-
+import csv
+sys.path.append("/home/local/VANDERBILT/litz/github/MASILab/thoraxtools/func")
+import vis.paral_clip_overlay_mask as overlay
 
 def copy_dataset(raw_path, label_path, out_dir):
     """copy over images that we have labels for"""
@@ -43,6 +45,35 @@ def train_test_split(root_dir, train_dir, test_dir):
         ids = glob.glob(os.path.join(root_dir, f"{scanid}.*"))
         for id in ids:
             shutil.copy(id, test_dir)
+
+def generate_kfolds(root_dir, out_path, k=5):
+    """split dataset into k folds and write to file"""
+    scans = glob.glob(os.path.join(root_dir, "*.mhd"))
+    random.seed(2)
+    random.shuffle(scans)
+    test_size = int(len(scans)/k)
+    folds = []
+    for i in range(k):
+        if i==k-1:
+            ifold = scans[(i*test_size):]
+        else:
+            ifold = scans[(i*test_size):((i+1)*test_size)]
+        folds.append(ifold)
+    with open(out_path, "w") as f:
+        wr = csv.writer(f)
+        wr.writerows(folds)
+
+def get_kfolds(kfolds_path, k=5):
+    """
+    read kfolds file and return list of lists
+    :return: [[1st fold],..,[kth fold]]
+    """
+    folds = []
+    with open(kfolds_path, "r") as f:
+        for row in f:
+            fold = row.rstrip().split(",")
+            folds.append(fold)
+    return folds
 
 def fix_labels(label_dir, out_dir):
     """
@@ -78,9 +109,16 @@ def fix_labels(label_dir, out_dir):
         fix_label_sitk.CopyInformation(label_sitk)
         sitk.WriteImage(fix_label_sitk, os.path.join(out_dir, os.path.basename(label_path)))
 
-def apply_body_mask_dir(mask_dir, raw_dir, out_dir, bg_value=-1500):
-    """ Uses existing body mask to set background pixels to some HU value"""
+def generate_clips(raw_dir, out_dir):
     for raw_path in tqdm(glob.glob(os.path.join(raw_dir, "*.mhd"))):
+        raw = sitk.ReadImage(raw_path)
+        raw_img = sitk.GetArrayFromImage(raw)
+        out_path = os.path.join(out_dir, f"{os.path.basename(raw_path)[:-4]}_coronal.png")
+        overlay.multiple_clip_overlay_from_np_sitk(raw_img, out_path, clip_plane='coronal')
+
+def apply_body_mask_dir(mask_dir, raw_dir, out_dir, filetype, bg_value=-1500):
+    """ Uses existing body mask to set background pixels to some HU value"""
+    for raw_path in tqdm(glob.glob(os.path.join(raw_dir, f"*.{filetype}"))):
         mask_path = os.path.join(mask_dir, os.path.basename(raw_path))
         raw = sitk.ReadImage(raw_path)
         mask = sitk.ReadImage(mask_path)
@@ -93,14 +131,15 @@ def apply_body_mask_dir(mask_dir, raw_dir, out_dir, bg_value=-1500):
         sitk.WriteImage(masked, os.path.join(out_dir, os.path.basename(raw_path)))
 
 
-def create_body_mask_dir(raw_dir, out_dir):
+def create_body_mask_dir(raw_dir, out_dir, filetype):
     """create body mask for all images in raw_dir"""
-    for raw_path in tqdm(glob.glob(os.path.join(raw_dir, "*.mhd"))):
+    for raw_path in tqdm(glob.glob(os.path.join(raw_dir, f"*.{filetype}"))):
         dst = os.path.join(out_dir, os.path.basename(raw_path))
         create_body_mask(raw_path, dst)
 
 def create_body_mask(in_img, out_mask):
     """
+    Create a body mask
     Adapted from https://github.com/MASILab/thorax_level_BCA/blob/0ff54db11395a28b62d91132be0df49e4927a3b5/Utils/utils.py#L577
     handles sitk images
     """
@@ -109,7 +148,7 @@ def create_body_mask(in_img, out_mask):
     print(f'Get body mask of image {in_img}')
     image_sitk = sitk.ReadImage(in_img)
     image_np = sitk.GetArrayFromImage(image_sitk)
-
+    image_np = ndi.gaussian_filter(image_np, sigma=1.5) # blur improves algo for noisy images
     BODY = (image_np >= -500)  # & (I<=win_max)
     print(f'{np.sum(BODY)} of {np.size(BODY)} voxels masked.')
     if np.sum(BODY) == 0:
@@ -131,6 +170,10 @@ def create_body_mask(in_img, out_mask):
     # Fill holes slice-wise
     for z in range(0, BODY.shape[2]):
         BODY[:, :, z] = ndi.binary_fill_holes(BODY[:, :, z])
+    for y in range(0, BODY.shape[1]):
+        BODY[:, y, :] = ndi.binary_fill_holes(BODY[:, y, :])
+    for x in range(0, BODY.shape[0]):
+        BODY[x, :, :] = ndi.binary_fill_holes(BODY[x, :, :])
 
     new_image = sitk.GetImageFromArray(BODY.astype(np.int8))
     new_image.CopyInformation(image_sitk)
@@ -141,7 +184,10 @@ def create_body_mask(in_img, out_mask):
             
 if __name__ == "__main__":
     # copy_dataset(*sys.argv[1:])
-    train_test_split(*sys.argv[1:])
+    # train_test_split(*sys.argv[1:])
     # fix_labels(*sys.argv[1:])
     # create_body_mask_dir(*sys.argv[1:])
-    # apply_body_mask_dir(*sys.argv[1:])
+    apply_body_mask_dir(*sys.argv[1:])
+    # generate_kfolds(*sys.argv[1:])
+    # get_kfolds(*sys.argv[1:])
+    # generate_clips(*sys.argv[1:])
