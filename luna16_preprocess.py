@@ -48,7 +48,8 @@ def train_test_split(root_dir, train_dir, test_dir):
 
 def generate_kfolds(root_dir, out_path, k=5):
     """split dataset into k folds and write to file"""
-    scans = glob.glob(os.path.join(root_dir, "*.mhd"))
+    scans = [os.path.join(root_dir, i) for i in os.listdir(root_dir) if os.path.splitext(i)[1] != ".raw"]
+    # scans = glob.glob(os.path.join(root_dir, "*.mhd"))
     random.seed(2)
     random.shuffle(scans)
     test_size = int(len(scans)/k)
@@ -187,7 +188,7 @@ if __name__ == "__main__":
     # train_test_split(*sys.argv[1:])
     # fix_labels(*sys.argv[1:])
     # create_body_mask_dir(*sys.argv[1:])
-    apply_body_mask_dir(*sys.argv[1:])
-    # generate_kfolds(*sys.argv[1:])
+    # apply_body_mask_dir(*sys.argv[1:])
+    generate_kfolds(*sys.argv[1:])
     # get_kfolds(*sys.argv[1:])
     # generate_clips(*sys.argv[1:])

@@ -2,7 +2,6 @@
 
 from monai.utils import set_determinism
 from monai.transforms import (
-    EnsureChannelFirstd,
     Compose,
     CropForegroundd,
     LoadImaged,
@@ -14,7 +13,9 @@ from monai.transforms import (
     RandShiftIntensityd,
     RandAffined,
     ToTensord,
-    EnsureTyped
+    EnsureTyped,
+    AsDiscreted,
+    Invertd,
 )
 from monai.data import DataLoader, Dataset
 import numpy as np
@@ -29,17 +30,23 @@ def train_dataloader(config, train_images):
         train_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in train_images]
     elif config["dataset"] == "luna16":
         train_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in train_images]
+    elif config["dataset"] == "mixed":
+        train_file_names = []
+        for i in train_images:
+            name, suffix = os.path.splitext(os.path.basename(i))
+            if suffix == ".mhd":
+                train_file_names.append(f"{name}_LobeSegmentation.nrrd")
+            elif suffix == ".gz":
+                fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
+                train_file_names.append(fname)
     else:
         print("Error: define dataset in Config.YAML")
         return
-
     train_labels = [os.path.join(LABEL_DIR, name) for name in train_file_names]
-
     train_files = [
         {"image": image_name, "label": label_name}
         for image_name, label_name in zip(train_images, train_labels)
     ]
-
     # val_size = int(len(train_images)*config["val_ratio"])
     # train_files, val_files = data_dicts[:-val_size], data_dicts[-val_size:]
 
@@ -65,7 +72,7 @@ def train_dataloader(config, train_images):
             keys=["image", "label"],
             label_key="label",
             spatial_size=CROP_SHAPE,
-            pos=1, # prob of picking a voxel
+            pos=1, # prob of picking a positive voxel
             neg=0,
             num_samples=config["crop_nsamples"],
             image_key="image",
@@ -94,6 +101,20 @@ def train_dataloader(config, train_images):
 
     return train_loader
 
+def get_val_transforms(config):
+    return Compose([
+        LoadImaged(keys=["image", "label"]),
+        # EnsureChannelFirstd(keys=["image", "label"]),
+        AddChanneld(keys=["image", "label"]),
+        Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
+                                 clip=True),
+        CropForegroundd(keys=["image", "label"], source_key="image"),
+        # EnsureTyped(keys=["image", "label"]),
+        ToTensord(keys=["image", "label"]),
+    ])
+
 def val_dataloader(config, val_images):
     LABEL_DIR = config["label_dir"]
 
@@ -101,6 +122,15 @@ def val_dataloader(config, val_images):
         val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
     elif config["dataset"] == "luna16":
         val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
+    elif config["dataset"] == "mixed":
+        val_file_names = []
+        for i in val_images:
+            name, suffix = os.path.splitext(os.path.basename(i))
+            if suffix == ".mhd":
+                val_file_names.append(f"{name}_LobeSegmentation.nrrd")
+            elif suffix == ".gz":
+                fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
+                val_file_names.append(fname)
     else:
         print("Error: define dataset in Config.YAML")
         return
@@ -111,29 +141,64 @@ def val_dataloader(config, val_images):
         for image_name, label_name in zip(val_images, val_labels)
     ]
 
-    set_determinism(seed=config["random_seed"])
-
-    # Hyperparams and constants
-    BATCH_SIZE = config["batch_size"]
-    CROP_SHAPE = config["crop_shape"]  # produce 4 crops of this size from raw image
     # Transforms
-    hu_window = config["window"]  # lung Hounsfield Unit window
-    # Transforms
-    val_transforms = Compose([
-        LoadImaged(keys=["image", "label"]),
-        # EnsureChannelFirstd(keys=["image", "label"]),
-        AddChanneld(keys=["image", "label"]),
-        Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
-        ScaleIntensityRanged(keys=["image"], a_min=hu_window[0], a_max=hu_window[1], b_min=0.0, b_max=1.0,
-                                 clip=True),
-        CropForegroundd(keys=["image", "label"], source_key="image"),
-        # EnsureTyped(keys=["image", "label"]),
-        ToTensord(keys=["image", "label"]),
-    ])
+    val_transforms = get_val_transforms(config)
 
     val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = DataLoader(val_ds, batch_size=1, num_workers=2)
+    val_loader = DataLoader(val_ds, batch_size=1, num_workers=2, shuffle=False)
     print(f"Validation sample size: {len(val_ds)}")
 
     return val_loader
+
+def test_dataloader(config, val_images):
+    test_transforms = Compose([
+        LoadImaged(keys=["image", "label"]),
+        AddChanneld(keys=["image", "label"]),
+        Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
+                             clip=True),
+        CropForegroundd(keys=["image", "label"], source_key="image"),
+        EnsureTyped(keys=["image", "label"]),
+    ])
+    invert_transforms = Compose([
+        EnsureTyped(keys="pred"),
+        Invertd(
+            keys="pred",
+            transform=test_transforms,
+            orig_keys="image",
+            meta_keys="pred_meta_dict",
+            orig_meta_keys="image_meta_dict",
+            meta_key_postfix="meta_dict",
+            nearest_interp=False,
+            to_tensor=True,
+        ),
+        # AsDiscreted(keys="pred", argmax=True, to_onehot=6),
+        # AsDiscreted(keys="label", to_onehot=6)
+    ])
+    LABEL_DIR = config["label_dir"]
+
+    if config["dataset"] == "vlsp":
+        val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
+    elif config["dataset"] == "luna16":
+        val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
+    elif config["dataset"] == "mixed":
+        val_file_names = []
+        for i in val_images:
+            name, suffix = os.path.splitext(os.path.basename(i))
+            if suffix == ".mhd":
+                val_file_names.append(f"{name}_LobeSegmentation.nrrd")
+            elif suffix == ".gz":
+                fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
+                val_file_names.append(fname)
+    else:
+        print("Error: define dataset in Config.YAML")
+        return
+    val_labels = [os.path.join(LABEL_DIR, name) for name in val_file_names]
+    val_files = [
+        {"image": image_name, "label": label_name, "image_path": image_name}
+        for image_name, label_name in zip(val_images, val_labels)
+    ]
+    test_ds = Dataset(data=val_files, transform=test_transforms)
+    test_loader = DataLoader(test_ds, batch_size=1, num_workers=2, shuffle=False)
+    return test_loader, invert_transforms

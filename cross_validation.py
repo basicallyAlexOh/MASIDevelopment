@@ -16,7 +16,7 @@ import random
 from itertools import chain
 from pathlib import Path
 import MetricLogger
-from dataloader import train_dataloader, val_dataloader
+from dataloader import train_dataloader, val_dataloader, test_dataloader
 from models import unet256, unet512, unet1024
 from train import train
 from test import test
@@ -28,7 +28,7 @@ def train_one_fold(config, config_id, k):
     print(f"Training on all folds except {k}")
     # unwrap directory paths
     MODEL_DIR = os.path.join(config["model_dir"], config_id, f"fold{k}")
-    CHECKPOINT_DIR = os.path.join(config["checkpoint_dir"], config_id)
+    CHECKPOINT_DIR = os.path.join(config["checkpoint_dir"], config_id, f"fold{k}")
     LOG_DIR = os.path.join(config["log_dir"], config_id, f"fold{k}")
 
     # Set randomness
@@ -38,6 +38,7 @@ def train_one_fold(config, config_id, k):
     # Make paths
     Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
     Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
+    Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
 
     # Logger
     logger = MetricLogger.MetricLogger(config, config_id)
@@ -47,7 +48,7 @@ def train_one_fold(config, config_id, k):
     folds = get_kfolds(config["kfolds_path"])
     images = [x for i, x in enumerate(folds) if i!=(k-1)] # all folds except k
     images = [x for fold in images for x in fold] # flatten list of lists
-    val_size = int(len(folds[0]))
+    val_size = int(len(images)*0.2)
     random.shuffle(images)
     val_images, train_images  = images[:val_size], images[val_size:]
     # get dataloaders
@@ -91,12 +92,19 @@ def train_one_fold(config, config_id, k):
           CHECKPOINT_DIR,
           MODEL_DIR)
 
-def test_one_fold(config, config_id, out_name, k):
+def test_one_fold(config, config_id, out_name, k, output_seg=True, output_clip=True):
     k = int(k)
     MODEL_DIR = os.path.join(config["model_dir"], config_id, f"fold{k}")
-    out_path = os.path.join(MODEL_DIR, out_name)
+    metrics_path = os.path.join(MODEL_DIR, out_name)
+    seg_dir = os.path.join(MODEL_DIR, 'segs') if output_seg else False
+    clip_dir = os.path.join(MODEL_DIR, 'clips') if output_clip else False
     model_path = os.path.join(MODEL_DIR, f"{config_id}_best_model.pth")
 
+    if output_seg:
+        Path(seg_dir).mkdir(parents=True, exist_ok=True)
+    if output_clip:
+        Path(clip_dir).mkdir(parents=True, exist_ok=True)
+        
     # Set randomness
     set_determinism(seed=config["random_seed"])
     random.seed(config["random_seed"])
@@ -104,7 +112,7 @@ def test_one_fold(config, config_id, out_name, k):
     # Load data
     images = get_kfolds(config["kfolds_path"])
     test_images = images[k-1]
-    test_loader = val_dataloader(config, test_images)
+    test_loader, invert_transforms = test_dataloader(config, test_images)
 
     # Initialize Model and test metric
     device = torch.device("cuda:0")
@@ -124,7 +132,10 @@ def test_one_fold(config, config_id, out_name, k):
          model_path,
          test_metric,
          test_loader,
-         out_path)
+         invert_transforms,
+         metrics_path,
+        seg_dir,
+        clip_dir)
 
 if __name__ == "__main__":
     # python3 cross_validation.py --config-id 0418cv_luna16 --train --test
@@ -134,6 +145,8 @@ if __name__ == "__main__":
     parser.add_argument('--k', type=int, default=1)
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--output-seg', action='store_true', default=False)
+    parser.add_argument('--output-clip', action='store_true', default=False)
     args = parser.parse_args()
 
     CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
@@ -142,4 +155,4 @@ if __name__ == "__main__":
     if args.train:
         train_one_fold(config, args.config_id, args.k)
     if args.test:
-        test_one_fold(config, args.config_id, args.out_name, args.k)
+        test_one_fold(config, args.config_id, args.out_name, args.k, output_seg=args.output_seg, output_clip=args.output_clip)

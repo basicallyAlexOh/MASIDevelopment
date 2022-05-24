@@ -47,19 +47,20 @@ def nearest_label_filling(img, cc):
 
 def postprocess_dir(seg_dir, out_dir):
     """Run post process for a directory"""
-    segs = glob.glob(os.path.join(seg_dir), "*.mhd")
-    for seg in tqdm(segs):
-        seg_sitk = sitk.ReadImage(seg)
+    # segs = glob.glob(os.path.join(seg_dir), "*.mhd")
+    for seg in tqdm(os.listdir(seg_dir)):
+    # for seg in tqdm(segs):
+        seg_sitk = sitk.ReadImage(os.path.join(seg_dir, seg))
         seg_img = sitk.GetArrayFromImage(seg_sitk)
         ## cc -> nearest label filling -> cc
-        postprocess = nearest_label_filling(get_largest_cc(seg_img))
+        postprocess = nearest_label_filling(seg_img, get_largest_cc(seg_img))
 
         postprocess_sitk = sitk.GetImageFromArray(postprocess)
         postprocess_sitk.CopyInformation(seg_sitk)
         sitk.WriteImage(postprocess_sitk, os.path.join(out_dir, os.path.basename(seg)))
 
 if __name__ == "__main__":
-    parser = argparse.ARgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument('--seg-dir', type=str)
     parser.add_argument('--out-dir', type=str)
     args = parser.parse_args()
