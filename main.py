@@ -107,9 +107,9 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
     MODEL_DIR = os.path.join(config["model_dir"], config_id)
     metrics_path = os.path.join(MODEL_DIR, out_name)
     seg_dir = os.path.join(MODEL_DIR, 'segs') if output_seg else False
-    # clip_dir = os.path.join(MODEL_DIR, 'clips') if output_clip else False
-    # model_path = os.path.join(MODEL_DIR, f"{config_id}_best_model.pth")
-    model_path = '/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/models/0418cv_luna16/fold1/0418cv_luna16_best_model.pth'
+    clip_dir = os.path.join(MODEL_DIR, 'clips') if output_clip else False
+    model_path = os.path.join(MODEL_DIR, f"{config_id}_best_model.pth")
+    # model_path = '/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/models/0418cv_luna16/fold1/0418cv_luna16_best_model.pth'
     # Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
     # Path(seg_dir).mkdir(parents=True, exist_ok=True)
     # Path(clip_dir).mkdir(parents=True, exist_ok=True)
@@ -141,7 +141,8 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
          test_loader,
          invert_transforms,
          metrics_path,
-         seg_dir)
+         seg_dir,
+         clip_dir)
 
 def load_config(config_name, config_dir):
     with open(os.path.join(config_dir, config_name)) as file:
