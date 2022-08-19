@@ -12,6 +12,7 @@ from monai.transforms import (
     EnsureChannelFirstd,
     Compose,
     CropForegroundd,
+    Resize,
     LoadImaged,
     Orientationd,
     Spacingd,
@@ -89,13 +90,17 @@ def cv_test_johof_luna16(k, kfolds_path, seg_dir, label_dir, metrics_f, model=0)
     device = torch.device("cuda:0")
     post_pred = Compose([EnsureType(), AsDiscrete(to_onehot=6)])
     post_labels = Compose([AsDiscrete(to_onehot=6)])
+    image_paths = []
     for test_data in tqdm(test_loader):
-        seg, label = (test_data["image"].to(device), test_data["label"].to(device))
+        seg, label, image_path = (test_data["image"].to(device), 
+            test_data["label"].to(device),
+            test_data["image_path"][0])
         # print(seg.shape)
         # print(label.shape)
         seg = [post_pred(i) for i in decollate_batch(seg)]
         label = [post_labels(i) for i in decollate_batch(label)]
         test_metric(y_pred=seg, y=label)
+        image_paths.append(image_path)
 
     test_dices = test_metric.aggregate()
 
@@ -103,13 +108,55 @@ def cv_test_johof_luna16(k, kfolds_path, seg_dir, label_dir, metrics_f, model=0)
     class_means = torch.mean(test_dices, dim=0)
     mean = torch.mean(test_dices)
     test_dices_df = DataFrame(test_dices.detach().cpu().numpy())
+    test_dices_df["input_path"] = image_paths
     test_dices_df.to_csv(metrics_f)
     print(f"Average class scores: {class_means}")
     print(f"Average score overall: {mean}")
 
+def cv_test_johof_al(k, kfolds_path, seg_dir, label_dir, metrics_dir, model_name="johof"):
+    k = int(k)
+    images = get_kfolds(kfolds_path)
+    test_images = images[k-1]
+    labels = glob.glob(os.path.join(label_dir, "*.nii.gz"))
+    segs = glob.glob(os.path.join(os.path.join(seg_dir, "*.nii.gz")))
+    test_loader = test_dataloader(segs, labels)
+    
+    test_metric = DiceMetric(include_background=False, reduction="none")
+    device = torch.device("cuda:0")
+    
+    image_paths = []
+    for test_data in tqdm(test_loader):
+        seg, label, image_path = (test_data["image"].to(device), 
+            test_data["label"].to(device),
+            test_data["image_path"][0])
+        
+        # transform to same size
+        post_pred = Compose([EnsureType(), 
+            Resize(spatial_size=label.shape, mode="nearest"), 
+            AsDiscrete(to_onehot=6)
+        ])
+        post_labels = Compose([AsDiscrete(to_onehot=6)])
+
+        seg = [post_pred(i) for i in decollate_batch(seg)]
+        label = [post_labels(i) for i in decollate_batch(label)]
+        test_metric(y_pred=seg, y=label)
+        image_paths.append(image_path)
+
+    test_dices = test_metric.aggregate()
+
+    # Record metrics and compute mean over test set
+    class_means = torch.mean(test_dices, dim=0)
+    mean = torch.mean(test_dices)
+    test_dices_df = DataFrame(test_dices.detach().cpu().numpy())
+    test_dices_df["input_path"] = image_paths
+    test_dices_df.to_csv(os.path.join(metrics_dir, f"{model_name}_fold{k}.csv"))
+    print(f"Average class scores: {class_means}")
+    print(f"Average score overall: {mean}")
+
+
 def test_dataloader(segs, labels, normalize_spacing=False):
     test_files = [
-        {"image": seg_name, "label": label_name}
+        {"image": seg_name, "label": label_name, "image_path": seg_name}
         for seg_name, label_name in zip(segs, labels)
     ]
 
@@ -119,9 +166,8 @@ def test_dataloader(segs, labels, normalize_spacing=False):
     test_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
         Spacingd(keys=["image", "label"], pixdim=(1,1,1), mode=("bilinear", "nearest")),
-        CropForegroundd(keys=["image", "label"], source_key="image"),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
         EnsureTyped(keys=["image", "label"]),
     ])
     # else:
@@ -172,12 +218,14 @@ def dice(im1, im2):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--k', type=int, default=1)
-    parser.add_argument('--kfolds-path', type=str, default='/home/local/VANDERBILT/litz/data/luna16/5fold_qa.csv')
-    parser.add_argument('--seg-dir', type=str, default='/home/local/VANDERBILT/litz/data/luna16/johof_fused')
-    parser.add_argument('--label-dir', type=str, default='/home/local/VANDERBILT/litz/data/luna16/fixed_labels')
-    parser.add_argument('--metrics-f', type=str, default='/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/tmp/test.csv')
+    parser.add_argument('--kfolds-path', type=str, default='/home/local/VANDERBILT/litz/data/imagevu/nifti/active_learning/dataset_rand/5folds.csv')
+    parser.add_argument('--seg-dir', type=str, default='/home/local/VANDERBILT/litz/data/imagevu/nifti/active_learning/dataset_rand/johof')
+    parser.add_argument('--label-dir', type=str, default='/home/local/VANDERBILT/litz/data/imagevu/nifti/active_learning/dataset_rand/label_nifti')
+    parser.add_argument('--metrics-dir', type=str, default='/home/local/VANDERBILT/litz/data/imagevu/nifti/active_learning/dataset_rand/metrics')
+    parser.add_argument('--model-name', type=str, default='johof') 
     parser.add_argument('--model', type=int, default=0) # 0 = johof, 1 = LSM
     args = parser.parse_args()
     print(args)
     # test_johof_luna16(*sys.argv[1:])
-    cv_test_johof_luna16(args.k, args.kfolds_path, args.seg_dir, args.label_dir, args.metrics_f, args.model)
+    # cv_test_johof_luna16(args.k, args.kfolds_path, args.seg_dir, args.label_dir, args.metrics_f, args.model)
+    cv_test_johof_al(args.k, args.kfolds_path, args.seg_dir, args.label_dir, args.metrics_dir, args.model_name)

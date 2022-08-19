@@ -8,6 +8,7 @@ import argparse
 import SimpleITK as sitk
 from tqdm import tqdm
 import glob
+from lungmask import mask
 
 def get_largest_cc(img, connectivity=1):
     """
@@ -22,6 +23,16 @@ def get_largest_cc(img, connectivity=1):
         largest_cc = labels==np.argmax(np.bincount(labels.flat, weights=binary.flat))
         merged += largest_cc*label
     return merged
+
+def get_lungmaks(raw_path):
+    """
+    segment lungmask using R231 from https://github.com/JoHof/lungmask
+    """
+    raw_sitk = sitk.ReadImage(raw_path)
+    lungmask = mask.apply(raw_sitk) # PAL orientation
+    lungmask = np.swapaxes(lungmask, 0,2) # SAL -> LAS
+    return lungmask
+
 
 def nearest_label_filling(img, cc):
     """
@@ -44,6 +55,23 @@ def nearest_label_filling(img, cc):
     nearest = np.where(no_label, nearest + 1, 0)
     filled = cc + nearest
     return get_largest_cc(filled)
+
+def lungmask_filling(cc, raw_path):
+    lungmask = get_lungmaks(raw_path)
+    dst_no_labels = np.zeros((5, *cc.shape))
+    no_label = np.where(lungmask, 1, 0) - np.where(cc, 1, 0)
+    for i in range(5):
+        label = i+1
+        binary = np.where(cc==label, 1, 0)
+        inv_binary = np.where(cc==label, 0, 1)
+        dst = -ndimage.distance_transform_cdt(binary) + ndimage.distance_transform_cdt(inv_binary)
+        dst_no_labels[i, :,:,:] = np.where(no_label, dst, 0)
+
+    nearest = np.argmin(dst_no_labels, axis=0)
+    nearest = np.where(no_label, nearest + 1, 0)
+    filled = cc + nearest
+    return get_largest_cc(filled)
+
 
 def postprocess_dir(seg_dir, out_dir):
     """Run post process for a directory"""

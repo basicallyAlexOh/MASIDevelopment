@@ -7,11 +7,14 @@ import shutil
 import random
 import pathlib
 import SimpleITK as sitk
+from postprocess import lungmask_filling, get_largest_cc
 sys.path.append("/home/local/VANDERBILT/litz/github/MASILab/thoraxtools/func")
 import vis.paral_clip_overlay_mask as overlay
 import pandas as pd
 from skimage.transform import resize
 from tqdm import tqdm
+import nibabel as nib
+import math
 
 def sample_candidates(img_dir, dst_dir):
     """Random sample of VLSP cohort"""
@@ -100,10 +103,40 @@ def convert_nifti(src_dir, dst_dir):
             img_sitk = sitk.ReadImage(os.path.join(src_dir, name))
             sitk.WriteImage(img_sitk, os.path.join(dst_dir, f"{os.path.splitext(name)[0]}.nii.gz"))
 
+def preprocess_labels(src_dir, dst_dir, raw_dir):
+    """Preprocess al labels with: CC and lungmask filling"""
+    for fname in tqdm(os.listdir(src_dir)):
+        # skip if already preprocessed
+        if os.path.exists(os.path.join(dst_dir, fname)):
+            continue
+        nii = nib.load(os.path.join(src_dir, fname))
+        # skip large images
+        if math.prod(nii.shape) >= 768*768*500:
+            continue
+        img = nii.get_fdata()
+        scanid = fname.split("_")[0]
+        raw_path = os.path.join(raw_dir, f"{scanid}.nii.gz")
+        preproc_img = lungmask_filling(get_largest_cc(img), raw_path)
+        
+        preproc_nii = nib.Nifti1Image(preproc_img, header=nii.header, affine=nii.affine)
+        nib.save(preproc_nii, os.path.join(dst_dir, fname))
+
+def clip_seg(seg_dir, clip_dir, raw_dir):
+    for fname in tqdm(os.listdir(seg_dir)):
+        scanid = fname.split("_")[0]
+        seg_path = os.path.join(seg_dir, fname)
+        raw_path = os.path.join(raw_dir, f"{scanid}.nii.gz")
+        overlay.multiple_clip_overlay_with_mask(raw_path, seg_path,
+            os.path.join(clip_dir, f"{scanid}_coronal.png"),
+            clip_plane='coronal',
+            img_vrange=(-1000, 0))
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     # sample_candidates(*args)
     # clip_al_candidates(*args)
     # copy_al_candidates(*args)
-    copy_al_train(*args)
+    # copy_al_train(*args)
     # convert_nifti(*args)
+    preprocess_labels(*args)
+    # clip_seg(*args)

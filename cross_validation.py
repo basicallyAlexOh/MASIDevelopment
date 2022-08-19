@@ -112,7 +112,7 @@ def test_one_fold(config, config_id, out_name, k, output_seg=True, output_clip=T
     # Load data
     images = get_kfolds(config["kfolds_path"])
     test_images = images[k-1]
-    test_loader, invert_transforms = test_dataloader(config, test_images)
+    test_loader = test_dataloader(config, test_images)
 
     # Initialize Model and test metric
     device = torch.device("cuda:0")
@@ -132,7 +132,6 @@ def test_one_fold(config, config_id, out_name, k, output_seg=True, output_clip=T
          model_path,
          test_metric,
          test_loader,
-         invert_transforms,
          metrics_path,
         seg_dir,
         clip_dir)

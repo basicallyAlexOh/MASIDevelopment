@@ -151,30 +151,24 @@ def val_dataloader(config, val_images):
     return val_loader
 
 def test_dataloader(config, val_images):
+    # test_transforms = Compose([
+    #     LoadImaged(keys=["image", "label"]),
+    #     AddChanneld(keys=["image", "label"]),
+    #     Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+    #     Orientationd(keys=["image", "label"], axcodes="RAS"),
+    #     ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
+    #                          clip=True),
+    #     # CropForegroundd(keys=["image", "label"], source_key="image"),
+    #     EnsureTyped(keys=["image", "label"]),
+    # ])
     test_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         AddChanneld(keys=["image", "label"]),
-        Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        Spacingd(keys=["image"], pixdim=config["pix_dim"], mode=("bilinear")),
+        Orientationd(keys=["image"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
                              clip=True),
-        CropForegroundd(keys=["image", "label"], source_key="image"),
-        EnsureTyped(keys=["image", "label"]),
-    ])
-    invert_transforms = Compose([
-        EnsureTyped(keys="pred"),
-        Invertd(
-            keys="pred",
-            transform=test_transforms,
-            orig_keys="image",
-            meta_keys="pred_meta_dict",
-            orig_meta_keys="image_meta_dict",
-            meta_key_postfix="meta_dict",
-            nearest_interp=False,
-            to_tensor=True,
-        ),
-        # AsDiscreted(keys="pred", argmax=True, to_onehot=6),
-        # AsDiscreted(keys="label", to_onehot=6)
+        EnsureTyped(keys=["image"]),
     ])
     LABEL_DIR = config["label_dir"]
 
@@ -201,4 +195,38 @@ def test_dataloader(config, val_images):
     ]
     test_ds = Dataset(data=val_files, transform=test_transforms)
     test_loader = DataLoader(test_ds, batch_size=1, num_workers=2, shuffle=False)
-    return test_loader, invert_transforms
+    return test_loader
+
+def infer_dataloader(config, val_images):
+    test_transforms = Compose([
+        LoadImaged(keys=["image"]),
+        AddChanneld(keys=["image"]),
+        Spacingd(keys=["image"], pixdim=config["pix_dim"], mode=("bilinear")),
+        Orientationd(keys=["image"], axcodes="RAS"),
+        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
+                             clip=True),
+        EnsureTyped(keys=["image"]),
+    ])
+    if config["dataset"] == "vlsp":
+        val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
+    elif config["dataset"] == "luna16":
+        val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
+    elif config["dataset"] == "mixed":
+        val_file_names = []
+        for i in val_images:
+            name, suffix = os.path.splitext(os.path.basename(i))
+            if suffix == ".mhd":
+                val_file_names.append(f"{name}_LobeSegmentation.nrrd")
+            elif suffix == ".gz":
+                fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
+                val_file_names.append(fname)
+    else:
+        print("Error: define dataset in Config.YAML")
+        return
+    val_files = [
+        {"image": image_name, "image_path": image_name}
+        for image_name in val_images
+    ]
+    infer_ds = Dataset(data=val_files, transform=test_transforms)
+    infer_loader = DataLoader(infer_ds, batch_size=1, num_workers=config["num_workers"], shuffle=False)
+    return infer_loader

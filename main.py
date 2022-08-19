@@ -119,7 +119,7 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
 
     # Load data
     images = sorted(glob.glob(os.path.join(DATA_DIR, config["image_type"])))
-    test_loader, invert_transforms = test_dataloader(config, images)
+    test_loader = test_dataloader(config, images)
 
     # Initialize Model and test metric
     device = torch.device("cuda:0")
@@ -139,7 +139,6 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
          model_path,
          test_metric,
          test_loader,
-         invert_transforms,
          metrics_path,
          seg_dir,
          clip_dir)
