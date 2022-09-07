@@ -111,10 +111,10 @@ def fix_labels(label_dir, out_dir):
         sitk.WriteImage(fix_label_sitk, os.path.join(out_dir, os.path.basename(label_path)))
 
 def generate_clips(raw_dir, out_dir):
-    for raw_path in tqdm(glob.glob(os.path.join(raw_dir, "*.mhd"))):
+    for raw_path in tqdm(glob.glob(os.path.join(raw_dir, "*.nii.gz"))):
         raw = sitk.ReadImage(raw_path)
         raw_img = sitk.GetArrayFromImage(raw)
-        out_path = os.path.join(out_dir, f"{os.path.basename(raw_path)[:-4]}_coronal.png")
+        out_path = os.path.join(out_dir, f"{os.path.basename(raw_path).split('.')[0]}_coronal.png")
         overlay.multiple_clip_overlay_from_np_sitk(raw_img, out_path, clip_plane='coronal')
 
 def apply_body_mask_dir(mask_dir, raw_dir, out_dir, filetype, bg_value=-1500):
@@ -189,6 +189,6 @@ if __name__ == "__main__":
     # fix_labels(*sys.argv[1:])
     # create_body_mask_dir(*sys.argv[1:])
     # apply_body_mask_dir(*sys.argv[1:])
-    generate_kfolds(*sys.argv[1:])
+    # generate_kfolds(*sys.argv[1:])
     # get_kfolds(*sys.argv[1:])
-    # generate_clips(*sys.argv[1:])
+    generate_clips(*sys.argv[1:])

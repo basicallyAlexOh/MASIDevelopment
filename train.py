@@ -16,6 +16,7 @@ def train(config,
           model,
           device,
           optimizer,
+          scheduler,
           loss_function,
           val_metric,
           train_loader,
@@ -51,6 +52,8 @@ def train(config,
             loss.backward()
             epoch_loss += loss.item()
             optimizer.step()
+            scheduler.step()
+            # print(optimizer.param_groups[0]['lr'])
 
             # logging
             writer.add_scalar('Loss/train', loss.data, global_step)

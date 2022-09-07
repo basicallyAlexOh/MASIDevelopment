@@ -51,7 +51,7 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
             spatial_size = raw_nii.shape
             print(spatial_size)
             # skip if volume exceeds VRAM constraints
-            if math.prod(spatial_size) > 512*512*500:
+            if math.prod(spatial_size) > 768*768*500:
                 continue
             post_pred_transforms = Compose([
                 EnsureType(),
@@ -113,9 +113,19 @@ if __name__ == "__main__":
     device = torch.device(config["device"])
 
     # Load N random images
-    images = glob.glob(os.path.join(data_dir, config["image_type"]))
-    if config["sample_size"]:
-        images = random.sample(images, config["sample_size"])
+    # images = glob.glob(os.path.join(data_dir, config["image_type"]))
+    # if config["sample_size"]:
+    #     images = random.sample(images, config["sample_size"])
+
+    # Load target sample
+    sample_df = pd.read_csv(config["sample"], converters={'sub_name':str})
+    sample_pids = sample_df["sub_name"].tolist()
+    images = []
+    for scanid in os.listdir(data_dir):
+        pid = scanid.split("time")[0]
+        if pid in sample_pids:
+            images.append(os.path.join(data_dir, scanid))
+    print(f"Sample size: {len(images)}")
     infer_loader = infer_dataloader(config, images)
 
     # load model
@@ -123,14 +133,15 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(model_path))
 
     # csv for qualitatively grading inferences (sensitivity analysis)
-    grade_csv_path = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/infer_vlsp.csv"
-    scanids = [os.path.basename(img).split('.')[0] for img in images]
-    grade_df = pd.DataFrame({"scanid":sorted(scanids)})
-    grade_df.to_csv(grade_csv_path, index_label=False, index=False)
+    # grade_csv_path = config["csv_path"]
+    # scanids = [os.path.basename(img).split('.')[0] for img in images]
+    # pids = [os.path.basename(scanid).split('time')[0] for scanid in scanids]
+    # grade_df = pd.DataFrame({"pid": pids, "scanid":scanids})
+    # grade_df.to_csv(grade_csv_path, index_label=False, index=False)
 
     if args.infer:
         infer(device, model, infer_loader, seg_dir, clip_dir)
-    if args.vis:
-        vis(images, seg_dir, clip_dir)
+    # if args.vis:
+    #     vis(images, seg_dir, clip_dir)
 
     

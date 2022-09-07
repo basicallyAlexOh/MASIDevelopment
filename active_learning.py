@@ -59,19 +59,16 @@ def resize_label(label_path, img_path):
     resized_sitk.SetDirection(reader.GetDirection())
     return resized_sitk
 
-def copy_al_candidates(cand_path, img_dir, label_dir, dst_dir):
+def copy_al_candidates(src_dir, dst_dir, img_dir):
     """ copy labels for active learning and resize them to image space"""
     # cand_df = pd.read_csv(cand_path)
     # for path in tqdm(cand_df["input_path"]):
-    for path in tqdm(os.listdir(dst_dir)):
-        # src_path = os.path.join(src_dir, f"lvlsetseg_{os.path.basename(path)}")
-        # dst_path = os.path.join(dst_dir, f"{os.path.basename(path).split('.')[0]}_lvlsetseg.nii.gz")
-        # shutil.copy(src_path, dst_dir)
-        img_path = os.path.join(img_dir, path)
-        label_path = os.path.join(label_dir, f"lvlsetseg_{path}")
+    for fname in tqdm(os.listdir(src_dir)):
+        src_path = os.path.join(src_dir, fname)
+        img_path = os.path.join(img_dir, f"{fname.split('_')[0]}.nii.gz")
         # print(label_path)
-        resized = resize_label(label_path, img_path)
-        dst_path = os.path.join(dst_dir, f"{path.split('.')[0]}_lvlsetseg.nii.gz")
+        resized = resize_label(src_path, img_path)
+        dst_path = os.path.join(dst_dir, fname)
         sitk.WriteImage(resized, dst_path)
 
 def copy_al_train(label_dir, luna_dir, vlsp_dir, dst_dir):
@@ -109,6 +106,9 @@ def preprocess_labels(src_dir, dst_dir, raw_dir):
         # skip if already preprocessed
         if os.path.exists(os.path.join(dst_dir, fname)):
             continue
+        # if fname != "00000404time20171110_lvlsetseg.nii.gz":
+        #     continue
+        print(fname)
         nii = nib.load(os.path.join(src_dir, fname))
         # skip large images
         if math.prod(nii.shape) >= 768*768*500:
@@ -126,10 +126,54 @@ def clip_seg(seg_dir, clip_dir, raw_dir):
         scanid = fname.split("_")[0]
         seg_path = os.path.join(seg_dir, fname)
         raw_path = os.path.join(raw_dir, f"{scanid}.nii.gz")
-        overlay.multiple_clip_overlay_with_mask(raw_path, seg_path,
-            os.path.join(clip_dir, f"{scanid}_coronal.png"),
-            clip_plane='coronal',
-            img_vrange=(-1000, 0))
+        if os.path.exists(raw_path):
+            overlay.multiple_clip_overlay_with_mask(raw_path, seg_path,
+                os.path.join(clip_dir, f"{scanid}_coronal.png"),
+                clip_plane='coronal',
+                img_vrange=(-1000, 0))
+
+def copy_using_ref(src_dir, dst_dir, ref_dir):
+    """copy files for scans ids in ref_dir"""
+    for fname in tqdm(os.listdir(ref_dir)):
+        scanid = fname.split("_")[0]
+        # copy luna16
+        # if "1.3.6" in scanid:
+        #     src_path = os.path.join(src_dir, f"lvlsetseg_{scanid}.mhd")
+        #     dst_path = os.path.join(dst_dir, f"{scanid}.nii.gz")
+        #     # convert to nifti
+        #     src_img = sitk.ReadImage(src_path)
+        #     sitk.WriteImage(src_img, dst_path)
+        # copy AL
+        if "time" in scanid:
+            src_path = os.path.join(src_dir, f"lvlsetseg_{scanid}.nii.gz")
+            dst_path = os.path.join(dst_dir, f"{scanid}.nii.gz")
+            shutil.copyfile(src_path, dst_path)
+
+def resize_using_ref(src_dir, dst_dir, ref_dir):
+    """resize labels using a reference dir"""
+    for fname in tqdm(os.listdir(src_dir)):
+        img_path = os.path.join(src_dir, fname)
+        ref_path = os.path.join(ref_dir, fname)
+        resized = resize_label(img_path, ref_path)
+        dst_path = os.path.join(dst_dir, fname)
+        sitk.WriteImage(resized, dst_path)
+
+def rename(dir):
+    for fname in os.listdir(dir):
+        if fname.split("_")[0]=="johof":
+            scanid = fname.split("_")[1]
+            os.rename(os.path.join(dir, fname), os.path.join(dir, scanid))
+
+def remove_labels(ref_dir, label_dir):
+    """remove labels for scans that are not present in training"""
+    rm = []
+    for fname in os.listdir(label_dir):
+        scanid = fname.split("_")[0]
+        if f"{scanid}.nii.gz" not in os.listdir(ref_dir):
+            rm.append(fname)
+            # os.remove(os.path.join(label_dir, fname))
+    print(rm)
+
 
 if __name__ == "__main__":
     args = sys.argv[1:]
@@ -138,5 +182,10 @@ if __name__ == "__main__":
     # copy_al_candidates(*args)
     # copy_al_train(*args)
     # convert_nifti(*args)
-    preprocess_labels(*args)
+    # preprocess_labels(*args)
     # clip_seg(*args)
+    # copy_using_ref(*args)
+    # rename(*args)
+    # resize_label(*args)
+    # resize_using_ref(*args)
+    # remove_labels(*args)

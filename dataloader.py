@@ -14,12 +14,15 @@ from monai.transforms import (
     RandAffined,
     ToTensord,
     EnsureTyped,
-    AsDiscreted,
-    Invertd,
+    SpatialPadd,
+    SpatialPad,
 )
 from monai.data import DataLoader, Dataset
 import numpy as np
 import os
+from skimage.transform import resize
+import math
+import torch
 
 # unwrap directory paths
 def train_dataloader(config, train_images):
@@ -28,6 +31,8 @@ def train_dataloader(config, train_images):
     # get labels from vlsp
     if config["dataset"] == "vlsp":
         train_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in train_images]
+    elif config["dataset"] == "TS":
+        train_file_names = [os.path.basename(name) for name in train_images]
     elif config["dataset"] == "luna16":
         train_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in train_images]
     elif config["dataset"] == "mixed":
@@ -44,7 +49,7 @@ def train_dataloader(config, train_images):
         return
     train_labels = [os.path.join(LABEL_DIR, name) for name in train_file_names]
     train_files = [
-        {"image": image_name, "label": label_name}
+        {"image": image_name, "label": label_name, "image_path": image_name}
         for image_name, label_name in zip(train_images, train_labels)
     ]
     # val_size = int(len(train_images)*config["val_ratio"])
@@ -64,10 +69,12 @@ def train_dataloader(config, train_images):
         # EnsureChannelFirstd(keys=["image", "label"]),
         AddChanneld(keys=["image", "label"]),
         Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
+        MatchSized(keys=["image", "label"], mode="crop"),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=hu_window[0], a_max=hu_window[1], b_min=0.0, b_max=1.0,
-                             clip=True),
-        CropForegroundd(keys=["image", "label"], source_key="image"),
+                            clip=True),
+        # CropForegroundd(keys=["image", "label"], source_key="image"),
+        SpatialPadd(keys=["image", "label"], spatial_size=CROP_SHAPE),
         RandCropByPosNegLabeld(
             keys=["image", "label"],
             label_key="label",
@@ -95,7 +102,7 @@ def train_dataloader(config, train_images):
     # Initialize Dataset
     train_ds = Dataset(data=train_files, transform=train_transforms)
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                              num_workers=config["num_workers"], pin_memory=True)
+                            num_workers=config["num_workers"], pin_memory=True)
 
     print(f"Training sample size: {len(train_ds)}")
 
@@ -104,14 +111,13 @@ def train_dataloader(config, train_images):
 def get_val_transforms(config):
     return Compose([
         LoadImaged(keys=["image", "label"]),
-        # EnsureChannelFirstd(keys=["image", "label"]),
         AddChanneld(keys=["image", "label"]),
         Spacingd(keys=["image", "label"], pixdim=config["pix_dim"], mode=("bilinear", "nearest")),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
-                                 clip=True),
-        CropForegroundd(keys=["image", "label"], source_key="image"),
-        # EnsureTyped(keys=["image", "label"]),
+        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], 
+            b_min=0.0, b_max=1.0, clip=True),
+        # CropForegroundd(keys=["image", "label"], source_key="image"),
+        MatchSized(keys=["image", "label"], mode="interp"),
         ToTensord(keys=["image", "label"]),
     ])
 
@@ -120,6 +126,8 @@ def val_dataloader(config, val_images):
 
     if config["dataset"] == "vlsp":
         val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
+    elif config["dataset"] == "TS":
+        val_file_names = [os.path.basename(name) for name in val_images]
     elif config["dataset"] == "luna16":
         val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
     elif config["dataset"] == "mixed":
@@ -137,7 +145,7 @@ def val_dataloader(config, val_images):
     val_labels = [os.path.join(LABEL_DIR, name) for name in val_file_names]
 
     val_files = [
-        {"image": image_name, "label": label_name}
+        {"image": image_name, "label": label_name, "image_path": image_name}
         for image_name, label_name in zip(val_images, val_labels)
     ]
 
@@ -167,13 +175,15 @@ def test_dataloader(config, val_images):
         Spacingd(keys=["image"], pixdim=config["pix_dim"], mode=("bilinear")),
         Orientationd(keys=["image"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
-                             clip=True),
+                            clip=True),
         EnsureTyped(keys=["image"]),
     ])
     LABEL_DIR = config["label_dir"]
 
     if config["dataset"] == "vlsp":
         val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
+    elif config["dataset"] == "TS":
+        val_file_names = [os.path.basename(name) for name in val_images]
     elif config["dataset"] == "luna16":
         val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
     elif config["dataset"] == "mixed":
@@ -204,11 +214,13 @@ def infer_dataloader(config, val_images):
         Spacingd(keys=["image"], pixdim=config["pix_dim"], mode=("bilinear")),
         Orientationd(keys=["image"], axcodes="RAS"),
         ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
-                             clip=True),
+                            clip=True),
         EnsureTyped(keys=["image"]),
     ])
     if config["dataset"] == "vlsp":
         val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
+    elif config["dataset"] == "TS":
+        val_file_names = [os.path.basename(name) for name in val_images]
     elif config["dataset"] == "luna16":
         val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
     elif config["dataset"] == "mixed":
@@ -230,3 +242,38 @@ def infer_dataloader(config, val_images):
     infer_ds = Dataset(data=val_files, transform=test_transforms)
     infer_loader = DataLoader(infer_ds, batch_size=1, num_workers=config["num_workers"], shuffle=False)
     return infer_loader
+
+class MatchSized(object):
+    """Resize input A to match size of input B"""
+    def __init__(self, keys, mode="interp"):
+        self.keyA, self.keyB = keys[0], keys[1]
+        self.mode = mode
+    
+    def __call__(self, data):
+        a, b = data[self.keyA], data[self.keyB]
+        if a.shape != b.shape:
+            if self.mode=="interp":
+                a = resize(a, b.shape)
+            else:
+                # crop then pad
+                a = a[..., :b.shape[-3], :b.shape[-2], :b.shape[-1]]
+                pad = SpatialPad(b.shape[-3:])
+                a = pad(a)
+        # assert (math.prod(a.shape) > 96**3), "less than (96,96,96) patch shape"
+        assert (a.shape==b.shape), f"resizing failed: data are not same shape! {data['image_path']}: {a.shape}, {b.shape}"
+        return {self.keyA: a, self.keyB: b}
+
+# if __name__ == "__main__":
+#     # import nibabel as nib
+#     # img = nib.load("/home/litz/data/TotalSegmentator/dataset/train/s0700.nii.gz").get_fdata()
+#     # label = nib.load("/home/litz/data/TotalSegmentator/dataset/label_preproc/s0700.nii.gz").get_fdata()
+#     # print(img.shape, label.shape)
+#     data = {"img": "/home/litz/data/TotalSegmentator/dataset/train/s0700.nii.gz", "label": "/home/litz/data/TotalSegmentator/dataset/label_preproc/s0700.nii.gz"}
+#     resize_tf = Compose([
+#         LoadImaged(keys=["img", "label"]),
+#         AddChanneld(keys=["img", "label"]),
+#         Spacingd(keys=["img", "label"], pixdim=(1,1,1), mode=("bilinear", "nearest")),
+#         MatchSized(keys=["img", "label"], mode="crop"),
+#         ])
+#     data_tf = resize_tf(data)
+#     print(data_tf["img"].shape)

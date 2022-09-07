@@ -1,3 +1,4 @@
+cufile.log
 checkpoints/
 models/
 tmp/
@@ -9,3 +10,4 @@ __pycache__
 .idea/
 .ipynb_checkpoints/
 *.csv
+.vscode/*

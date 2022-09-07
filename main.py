@@ -14,10 +14,12 @@ import yaml
 import random
 import glob
 import argparse
+import math
 from pathlib import Path
 import MetricLogger
 from dataloader import train_dataloader, val_dataloader, test_dataloader
 from models import unet256, unet512, unet1024
+from scheduler import WarmupCosineSchedule
 from train import train
 from test import test
 
@@ -73,6 +75,12 @@ def run_train(config, config_id):
     dice_metric = DiceMetric(False, reduction="mean", get_not_nans=False)
     start_epoch = 0
 
+    # scheduler
+    n_batches = len(train_loader)
+    print(f"Total steps: {config['epochs']*n_batches}")
+    scheduler = WarmupCosineSchedule(optimizer, warmup_steps=config["warmup_steps"], 
+        t_total=config["epochs"]*n_batches, last_epoch=start_epoch*n_batches-1)
+    
     # Resume training from checkpoint if indicated
     if config["checkpoint"]:
         print(f"Resuming training of {config_id} from {config['checkpoint']}")
@@ -92,6 +100,7 @@ def run_train(config, config_id):
           model,
           device,
           optimizer,
+          scheduler,
           loss_function,
           dice_metric,
           train_loader,
