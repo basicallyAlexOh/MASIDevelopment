@@ -1,4 +1,4 @@
-from monai.networks.nets import UNet
+from monai.networks.nets import UNet, UNETR
 from monai.networks.layers import Norm
 
 def unet256(num_classes=6):
@@ -32,4 +32,19 @@ def unet1024(num_classes=6):
         strides=(2, 2, 2, 2),
         num_res_units=4,
         norm=Norm.BATCH,
+    )
+
+def unetr16(num_classes=6):
+    return UNETR(
+        in_channels=1,
+        out_channels=num_classes,
+        img_size=(96, 96, 96),
+        feature_size=16,
+        hidden_size=768,
+        mlp_dim=3072,
+        num_heads=12,
+        pos_embed="perceptron",
+        norm_name="instance",
+        res_block=True,
+        dropout_rate=0.0,
     )

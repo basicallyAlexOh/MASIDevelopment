@@ -38,7 +38,6 @@ def test(config,
          seg_dir,
          clip_dir):
 
-    device = torch.device(config["device"])
     model.load_state_dict(torch.load(model_path))
     model.eval()
     test_metric.reset()

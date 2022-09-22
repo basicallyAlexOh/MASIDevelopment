@@ -9,6 +9,7 @@ import SimpleITK as sitk
 from tqdm import tqdm
 import glob
 from lungmask import mask
+from utils import read_image
 
 def get_largest_cc(img, connectivity=1):
     """

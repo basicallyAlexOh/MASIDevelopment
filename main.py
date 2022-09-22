@@ -3,26 +3,23 @@
 
 from monai.utils import set_determinism
 from monai.metrics import DiceMetric
-from monai.losses import DiceLoss, DiceCELoss
+from monai.losses import DiceCELoss
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import random_split
 import torch
 import os
-import sys
 import yaml
 import random
 import glob
 import argparse
-import math
 from pathlib import Path
 import MetricLogger
-from dataloader import train_dataloader, val_dataloader, test_dataloader
-from models import unet256, unet512, unet1024
+from dataloader import train_dataloader, val_dataloader, test_dataloader, npy_train_loader
+from models import unet256, unet512, unet1024, unetr16
 from scheduler import WarmupCosineSchedule
 from train import train
 from test import test
-
 
 def run_train(config, config_id):
     # unwrap directory paths
@@ -53,9 +50,15 @@ def run_train(config, config_id):
     val_size = int(len(images) * config["val_ratio"])
     random.shuffle(images)
     val_images, train_images = images[:val_size], images[val_size:]
+    
     # get dataloaders
-    train_loader = train_dataloader(config, train_images)
-    val_loader = val_dataloader(config, val_images)
+    if config["image_type"]=="*.npy":
+        print("From pre transformed npys")
+        train_loader = npy_train_loader(config, train_images)
+        val_loader = npy_train_loader(config, val_images)
+    else:
+        train_loader = train_dataloader(config, train_images)
+        val_loader = val_dataloader(config, val_images)
 
     # LABEL_SHAPE = (512, 512, 320)  # All labels have this shape, but input shapes vary
 
@@ -66,6 +69,8 @@ def run_train(config, config_id):
         model = unet512(6).to(device)
     elif config["model"] == 'unet1024':
         model = unet1024(6).to(device)
+    elif config["model"] == 'unetr16':
+        model = unetr16(6).to(device)
     else:
         model = unet256(6).to(device)
     # loss_function = DiceLoss(include_background=config["include_bg_loss"], to_onehot_y=True, softmax=True)
@@ -127,7 +132,7 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
     random.seed(config["random_seed"])
 
     # Load data
-    images = sorted(glob.glob(os.path.join(DATA_DIR, config["image_type"])))
+    images = sorted(glob.glob(os.path.join(DATA_DIR, config["test_image_type"])))
     test_loader = test_dataloader(config, images)
 
     # Initialize Model and test metric
@@ -136,6 +141,8 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
         model = unet512(6).to(device)
     elif config["model"] == 'unet1024':
         model = unet1024(6).to(device)
+    elif config["model"] == 'unetr16':
+        model = unetr16(6).to(device)
     else:
         model = unet256(6).to(device)
     # Set metric to compute average over each class
@@ -158,18 +165,6 @@ def load_config(config_name, config_dir):
     return config
 
 if __name__ == "__main__":
-    # Training
-    # CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    # config_id = sys.argv[1]
-    # config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
-    # run_train(config, config_id)
-
-    # Validation/Test
-    # CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    # config_id, out_name = sys.argv[1], sys.argv[2]
-    # config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
-    # run_test(config, config_id, out_name)
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--config-id', type=str)
     parser.add_argument('--out-name', type=str, default='test.csv')

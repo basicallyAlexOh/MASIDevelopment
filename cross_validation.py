@@ -6,14 +6,12 @@ import argparse
 from monai.utils import set_determinism
 
 from monai.metrics import DiceMetric
-from monai.losses import DiceLoss, DiceCELoss
+from monai.losses import DiceCELoss
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import os
-import sys
 import random
-from itertools import chain
 from pathlib import Path
 import MetricLogger
 from dataloader import train_dataloader, val_dataloader, test_dataloader
@@ -22,6 +20,7 @@ from train import train
 from test import test
 from luna16_preprocess import get_kfolds
 from main import load_config
+from scheduler import WarmupCosineSchedule
 
 def train_one_fold(config, config_id, k):
     k = int(k)
@@ -62,6 +61,8 @@ def train_one_fold(config, config_id, k):
         model = unet512(6).to(device)
     elif config["model"] == 'unet1024':
         model = unet1024(6).to(device)
+    elif config["model"] == 'unetr16':
+        model = unetr16(6).to(device)
     else:
         model = unet256(6).to(device)
     # loss_function = DiceLoss(include_background=config["include_bg_loss"], to_onehot_y=True, softmax=True)
@@ -70,6 +71,12 @@ def train_one_fold(config, config_id, k):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"])
     dice_metric = DiceMetric(False, reduction="mean", get_not_nans=False)
     start_epoch = 0
+
+    # scheduler
+    n_batches = len(train_loader)
+    print(f"Total steps: {config['epochs']*n_batches}")
+    scheduler = WarmupCosineSchedule(optimizer, warmup_steps=config["warmup_steps"], 
+        t_total=config["epochs"]*n_batches, last_epoch=start_epoch*n_batches-1)
 
     # Finetune pretrained model if indicated
     if config["pretrained"]:
@@ -82,6 +89,7 @@ def train_one_fold(config, config_id, k):
           model,
           device,
           optimizer,
+          scheduler,
           loss_function,
           dice_metric,
           train_loader,

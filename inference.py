@@ -10,8 +10,8 @@ from pathlib import Path
 import argparse
 import pandas as pd
 import math
-
-from dataloader import infer_dataloader, test_dataloader
+import numpy as np
+from dataloader import infer_dataloader, npy_test_loader
 from models import unet512
 import torch
 import nibabel as nib
@@ -44,12 +44,13 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
             if os.path.exists(os.path.join(seg_dir, f"{fname}.nii.gz")):
                 continue 
 
+            # raw_img = np.load(image_path)[0]
             raw_nii = nib.load(image_path)
             axcodes = nib.orientations.aff2axcodes(raw_nii.affine)
             axcodes = ''.join(axcodes)
             pixdim = raw_nii.header.get_zooms()
             spatial_size = raw_nii.shape
-            print(spatial_size)
+            # print(spatial_size)
             # skip if volume exceeds VRAM constraints
             if math.prod(spatial_size) > 768*768*500:
                 continue
@@ -64,11 +65,11 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
             pred = post_pred_transforms(pred[0])
             label_map = pred[0].detach().cpu().numpy()
             label_map = lungmask_filling(get_largest_cc(label_map), image_path)
+            # label_map = get_largest_cc(label_map)
 
-            
-            label_map_nii = nib.Nifti1Image(label_map, header=raw_nii.header, affine =raw_nii.affine)
-            nib.save(label_map_nii, os.path.join(seg_dir, f"{fname}.nii.gz"))
-            vis([image_path], seg_dir, clip_dir)
+            # label_map_nii = nib.Nifti1Image(label_map, header=raw_nii.header, affine =raw_nii.affine)
+            # nib.save(label_map_nii, os.path.join(seg_dir, f"{fname}.nii.gz"))
+            # vis([image_path], seg_dir, clip_dir)
 
             # resize raw and visualize overlay
             raw_transforms = Compose([EnsureType(), AddChannel(), Resize(spatial_size=spatial_size, mode="trilinear")])
@@ -77,7 +78,7 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
             overlay.multiple_clip_overlay_with_mask_from_npy(raw_img, label_map,
                 os.path.join(clip_dir, f"{fname}_coronal.png"), 
                 clip_plane="coronal", 
-                img_vrange=(-1000,0))
+                img_vrange=(0,1))
 
 def vis(images, seg_dir, clip_dir):
     for image_path in tqdm(images):
@@ -97,14 +98,14 @@ if __name__ == "__main__":
 
     # Setup
     CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    config_id = "infer_vlsp"
+    config_id = "emp_nlst"
     config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
 
     data_dir = config["data_dir"]
     model_dir = os.path.join(config["model_dir"])
     model_path = config["pretrained"]
-    clip_dir = os.path.join(config["clip_dir"])
-    seg_dir = os.path.join(config["seg_dir"])
+    clip_dir = os.path.join(config["clip_dir"], config_id)
+    seg_dir = os.path.join(config["seg_dir"], config_id)
     Path(clip_dir).mkdir(parents=True, exist_ok=True)
     Path(seg_dir).mkdir(parents=True, exist_ok=True)
 
@@ -113,20 +114,28 @@ if __name__ == "__main__":
     device = torch.device(config["device"])
 
     # Load N random images
-    # images = glob.glob(os.path.join(data_dir, config["image_type"]))
-    # if config["sample_size"]:
-    #     images = random.sample(images, config["sample_size"])
+    images = glob.glob(os.path.join(data_dir, config["image_type"]))[:10]
+    if config["sample_size"]:
+        images = random.sample(images, config["sample_size"])
 
     # Load target sample
-    sample_df = pd.read_csv(config["sample"], converters={'sub_name':str})
-    sample_pids = sample_df["sub_name"].tolist()
-    images = []
-    for scanid in os.listdir(data_dir):
-        pid = scanid.split("time")[0]
-        if pid in sample_pids:
-            images.append(os.path.join(data_dir, scanid))
-    print(f"Sample size: {len(images)}")
-    infer_loader = infer_dataloader(config, images)
+    # sample_df = pd.read_csv(config["sample"], converters={'sub_name':str})
+    # sample_pids = sample_df["sub_name"].tolist()
+    # images = []
+    # for scanid in os.listdir(data_dir):
+    #     pid = scanid.split("time")[0]
+    #     if pid in sample_pids:
+    #         images.append(os.path.join(data_dir, scanid))
+    # print(f"Sample size: {len(images)}")
+    
+    # images = glob.glob(os.path.join(config["data_dir"], "*.npy"))[:100]
+
+    # get dataloaders
+    if config["image_type"]=="*.npy":
+        print("From pre transformed npys")
+        infer_loader = npy_test_loader(config, images)
+    else:
+        infer_loader = infer_dataloader(config, images)
 
     # load model
     model = unet512(6).to(device)

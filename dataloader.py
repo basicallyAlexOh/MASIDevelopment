@@ -24,6 +24,64 @@ from skimage.transform import resize
 import math
 import torch
 
+def npy_train_loader(config, npys):
+    label_dir = config["label_dir"]
+    labels = [os.path.join(label_dir, os.path.basename(npy)) for npy in npys]
+    files = [
+        {"image": npy, "label": label}
+        for npy, label in zip(npys, labels)
+    ]
+    npy_transforms = Compose([
+        LoadImaged(keys=["image", "label"]),
+        SpatialPadd(keys=["image", "label"], spatial_size=config["crop_shape"]),
+        RandCropByPosNegLabeld(
+            keys=["image", "label"],
+            label_key="label",
+            spatial_size=config["crop_shape"],
+            pos=1, # prob of picking a positive voxel
+            neg=0,
+            num_samples=config["crop_nsamples"],
+            image_key="image",
+            image_threshold=0,
+        ),
+        RandShiftIntensityd(
+            keys=["image"],
+            offsets=0.10,
+            prob=0.20,
+        ),
+        RandAffined(
+            keys=['image', 'label'],
+            mode=('bilinear', 'nearest'),
+            prob=1.0, spatial_size=config["crop_shape"],
+            rotate_range=(0, 0, np.pi / 30),
+            scale_range=(0.1, 0.1, 0.1)),
+        ToTensord(keys=["image", "label"]),
+    ])
+
+    set_determinism(seed=config["random_seed"])
+    train_ds = Dataset(data=files, transform=npy_transforms)
+    train_loader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True,
+                        num_workers=config["num_workers"], pin_memory=True)
+    return train_loader
+
+def npy_test_loader(config, npys):
+    label_dir = config["label_dir"]
+    labels = [os.path.join(label_dir, os.path.basename(npy)) for npy in npys]
+    files = [
+        {"image": npy, "label": label, "image_path": npy}
+        for npy, label in zip(npys, labels)
+    ]
+    test_transforms = Compose([
+        LoadImaged(keys=["image"]),
+        ToTensord(keys=["image"]),
+    ])
+
+    set_determinism(seed=config["random_seed"])
+    test_ds = Dataset(data=files, transform=test_transforms)
+    test_loader = DataLoader(test_ds, batch_size=1, shuffle=True,
+                        num_workers=config["num_workers"], pin_memory=True)
+    return test_loader
+
 # unwrap directory paths
 def train_dataloader(config, train_images):
     LABEL_DIR = config["label_dir"]
@@ -178,7 +236,7 @@ def test_dataloader(config, val_images):
                             clip=True),
         EnsureTyped(keys=["image"]),
     ])
-    LABEL_DIR = config["label_dir"]
+    LABEL_DIR = config["test_label_dir"]
 
     if config["dataset"] == "vlsp":
         val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
@@ -217,24 +275,6 @@ def infer_dataloader(config, val_images):
                             clip=True),
         EnsureTyped(keys=["image"]),
     ])
-    if config["dataset"] == "vlsp":
-        val_file_names = [f"lvlsetseg_{os.path.basename(name)}" for name in val_images]
-    elif config["dataset"] == "TS":
-        val_file_names = [os.path.basename(name) for name in val_images]
-    elif config["dataset"] == "luna16":
-        val_file_names = [f"{os.path.basename(name)[:-4]}_LobeSegmentation.nrrd" for name in val_images]
-    elif config["dataset"] == "mixed":
-        val_file_names = []
-        for i in val_images:
-            name, suffix = os.path.splitext(os.path.basename(i))
-            if suffix == ".mhd":
-                val_file_names.append(f"{name}_LobeSegmentation.nrrd")
-            elif suffix == ".gz":
-                fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
-                val_file_names.append(fname)
-    else:
-        print("Error: define dataset in Config.YAML")
-        return
     val_files = [
         {"image": image_name, "image_path": image_name}
         for image_name in val_images

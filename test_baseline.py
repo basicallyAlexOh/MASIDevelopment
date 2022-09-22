@@ -152,7 +152,7 @@ def test_dataloader(segs, labels, normalize_spacing=False):
     #         EnsureTyped(keys=["image", "label"]),
     #     ])
     test_ds = Dataset(data=test_files, transform=test_transforms)
-    test_loader = DataLoader(test_ds, batch_size=1, num_workers=2, shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=1, num_workers=1, shuffle=False)
     print(f"Test sample size: {len(test_ds)}")
     return test_loader
 
