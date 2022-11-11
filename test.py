@@ -42,7 +42,7 @@ def test(config,
     model.eval()
     test_metric.reset()
 
-    measure_transforms = Compose([EnsureType(), AddChannel(), AsDiscrete(to_onehot=6)])
+    # measure_transforms = Compose([EnsureType(), AddChannel(), AsDiscrete(to_onehot=6)])
     image_paths = []
     # reader = sitk.ImageFileReader()
     # print(psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
@@ -75,7 +75,9 @@ def test(config,
 
             # postprocces with CC and nearest label filling
             pred = torch.argmax(test_data["pred"], dim=0)
-            pred = lungmask_filling(get_largest_cc(pred), image_path)
+            # pred = lungmask_filling(get_largest_cc(pred), image_path)
+            pred = nearest_label_filling(pred, get_largest_cc(pred))
+            measure_transforms = Compose([EnsureType(), AddChannel(), AsDiscrete(to_onehot=len(np.unique(pred)))])
             test_data["pred"] = measure_transforms(pred)
             
             # compute dice

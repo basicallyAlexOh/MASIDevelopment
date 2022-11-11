@@ -11,7 +11,7 @@ import argparse
 import pandas as pd
 import math
 import numpy as np
-from dataloader import infer_dataloader, npy_test_loader
+# from dataloader import infer_dataloader, npy_test_loader
 from models import unet512
 import torch
 import nibabel as nib
@@ -25,15 +25,21 @@ from monai.transforms import (
     Spacing,
     Resize,
     Orientation,
+    LoadImaged,
+    AddChanneld,
+    Spacingd,
+    Orientationd,
+    ScaleIntensityRanged,
+    EnsureTyped,
 )
 from postprocess import get_largest_cc, lungmask_filling
+from monai.data import DataLoader, Dataset
 sys.path.append("/home/local/VANDERBILT/litz/github/MASILab/thoraxtools/func")
 
 lobe_label = ["LUL","LLL","RUL", "RML", "RLL", "Left", "Right", "All"]
 
 def main(model, loader, device, out_path):
     model.eval()
-    rows = []
 
     # append to existing file
     # old_df = pd.read_csv(out_path, dtype={'scanid':str})
@@ -50,6 +56,11 @@ def main(model, loader, device, out_path):
                 axcodes = ''.join(axcodes)
                 sx, sy, sz = raw_nii.header.get_zooms()
                 spatial_size = raw_nii.shape
+
+                # if dimension small, likely a CXR. skip
+                if data.shape[-1] < 30 or data.shape[-2] < 30 or data.shape[-3] < 30:
+                    continue
+
                 # adjust sizing for VRAM constraints
                 # if spatial_size[0] > 600:
                 #     sx, sy, sz = sx*1.5, sy*1.5, sz*1.5
@@ -112,14 +123,50 @@ def main(model, loader, device, out_path):
                 all_row = [{"scanid":scanid, "lobe":lobe_label[7], "lobe_vol":all_vol, "LAV": all_LAV,
                         "LAVp": all_LAVp, "residual_vol": all_residual, "residualp": all_residualp}]
                 
-                rows = rows + lobe_rows + left_row + right_row + all_row
-                df = pd.DataFrame(rows)
-                df.to_csv(out_path, mode='a', header=False, index=False)
+                df = pd.DataFrame(lobe_rows + left_row + right_row + all_row)
+                if os.path.exists(out_path):
+                    df.to_csv(out_path, mode='a', header=False, index=False)
+                else: 
+                    df.to_csv(out_path, index=False)
             except Exception as e:
                 print(batch["image_path"][0])
                 print(e)
 
+class ChooseChanneld():
+    def __init__(self, keys) -> None:
+        super().__init__()
+        self.keys = keys
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.keys:
+            d[key] = self.choose(d[key])
+        return d
+    def choose(self, x):
+        """If 4d image, select first channel"""
+        if len(x.shape) > 3:
+            print(x.shape)
+            return x[:, :, :, 0]
+        else:
+            return x
 
+def infer_dataloader(config, val_images):
+    test_transforms = Compose([
+        LoadImaged(keys=["image"]),
+        ChooseChanneld(keys=["image"]),
+        AddChanneld(keys=["image"]),
+        Spacingd(keys=["image"], pixdim=config["pix_dim"], mode=("bilinear")),
+        Orientationd(keys=["image"], axcodes="RAS"),
+        ScaleIntensityRanged(keys=["image"], a_min=config["window"][0], a_max=config["window"][1], b_min=0.0, b_max=1.0,
+                            clip=True),
+        EnsureTyped(keys=["image"]),
+    ])
+    val_files = [
+        {"image": image_name, "image_path": image_name}
+        for image_name in val_images
+    ]
+    infer_ds = Dataset(data=val_files, transform=test_transforms)
+    infer_loader = DataLoader(infer_ds, batch_size=1, num_workers=config["num_workers"], shuffle=False)
+    return infer_loader
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -152,7 +199,7 @@ if __name__ == "__main__":
         # skip scans that have already been analyzed
         if os.path.exists(out_path):
             old_df = pd.read_csv(out_path, dtype={'scanid':str})
-            done = old_df.iloc[:,1].unique().tolist()
+            done = old_df.iloc[:,0].unique().tolist()
 
             images = [os.path.join(config["data_dir"], f"{scanid}.nii.gz") for scanid in df['series_uid'].tolist() if scanid not in done]
         else:

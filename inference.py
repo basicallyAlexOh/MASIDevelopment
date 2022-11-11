@@ -38,7 +38,7 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
     with torch.no_grad():
         for batch in tqdm(infer_loader):
             data, image_path = batch["image"].to(device), batch["image_path"][0]
-            fname = os.path.basename(image_path).split(".")[0]
+            fname = os.path.basename(image_path).split(".nii.gz")[0]
             
             #  check if segmentation has been done
             if os.path.exists(os.path.join(seg_dir, f"{fname}.nii.gz")):
@@ -78,7 +78,7 @@ def infer(device, model, infer_loader, seg_dir, clip_dir=None):
             overlay.multiple_clip_overlay_with_mask_from_npy(raw_img, label_map,
                 os.path.join(clip_dir, f"{fname}_coronal.png"), 
                 clip_plane="coronal", 
-                img_vrange=(0,1))
+                img_vrange=(-1000,0))
 
 def vis(images, seg_dir, clip_dir):
     for image_path in tqdm(images):
@@ -114,7 +114,8 @@ if __name__ == "__main__":
     device = torch.device(config["device"])
 
     # Load N random images
-    images = glob.glob(os.path.join(data_dir, config["image_type"]))[:10]
+    images = glob.glob(os.path.join(data_dir, config["image_type"]))[:20]
+    # images.append(os.path.join(data_dir, "1.2.840.113654.2.55.217162778641601811926998022398013192700.nii.gz"))
     if config["sample_size"]:
         images = random.sample(images, config["sample_size"])
 
