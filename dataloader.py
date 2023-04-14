@@ -38,7 +38,7 @@ def npy_train_loader(config, npys):
             keys=["image", "label"],
             label_key="label",
             spatial_size=config["crop_shape"],
-            pos=1, # prob of picking a positive voxel
+            pos=0.8, # prob of picking a positive voxel
             neg=0,
             num_samples=config["crop_nsamples"],
             image_key="image",
@@ -137,7 +137,7 @@ def train_dataloader(config, train_images):
             keys=["image", "label"],
             label_key="label",
             spatial_size=CROP_SHAPE,
-            pos=1, # prob of picking a positive voxel
+            pos=0.8, # prob of picking a positive voxel
             neg=0,
             num_samples=config["crop_nsamples"],
             image_key="image",
@@ -250,7 +250,7 @@ def test_dataloader(config, val_images):
             name, suffix = os.path.splitext(os.path.basename(i))
             if suffix == ".mhd":
                 val_file_names.append(f"{name}_LobeSegmentation.nrrd")
-            elif suffix == ".gz":
+            elif suffix == ".vscgz":
                 fname = f"{name[:-4]}_LobeSegmentation.nii.gz" if name[1] == '.' else f"{name[:-4]}_lvlsetseg.nii.gz"
                 val_file_names.append(fname)
     else:
@@ -304,11 +304,11 @@ class MatchSized(object):
         return {self.keyA: a, self.keyB: b}
 
 # if __name__ == "__main__":
-#     # import nibabel as nib
-#     # img = nib.load("/home/litz/data/TotalSegmentator/dataset/train/s0700.nii.gz").get_fdata()
-#     # label = nib.load("/home/litz/data/TotalSegmentator/dataset/label_preproc/s0700.nii.gz").get_fdata()
-#     # print(img.shape, label.shape)
-#     data = {"img": "/home/litz/data/TotalSegmentator/dataset/train/s0700.nii.gz", "label": "/home/litz/data/TotalSegmentator/dataset/label_preproc/s0700.nii.gz"}
+#     import nibabel as nib
+#     img = nib.load("/home-nfs2/local/VANDERBILT/litz/data/imagevu/nifti/train/00000001time20131205.nii.gz").get_fdata()
+#     label = nib.load("/home-nfs2/local/VANDERBILT/litz/data/imagevu/lobe/lvlsetsegCC/lvlsetseg_00000001time20131205.nii.gz").get_fdata()
+#     print(img.shape, label.shape)
+#     data = {"img": "/home-nfs2/local/VANDERBILT/litz/data/imagevu/nifti/train/00000001time20131205.nii.gz", "label": "/home-nfs2/local/VANDERBILT/litz/data/imagevu/lobe/lvlsetsegCC/lvlsetseg_00000001time20131205.nii.gz"}
 #     resize_tf = Compose([
 #         LoadImaged(keys=["img", "label"]),
 #         AddChanneld(keys=["img", "label"]),

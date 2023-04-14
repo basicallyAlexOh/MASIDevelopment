@@ -1,6 +1,28 @@
 from monai.networks.nets import UNet, UNETR
 from monai.networks.layers import Norm
 
+def unet64(num_classes=6):
+    return UNet(
+        spatial_dims=3,
+        in_channels=1,
+        out_channels=num_classes,
+        channels=(4, 8, 16, 32, 64),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+        norm=Norm.BATCH,
+    )
+
+def unet128(num_classes=6):
+    return UNet(
+        spatial_dims=3,
+        in_channels=1,
+        out_channels=num_classes,
+        channels=(8, 16, 32, 64, 128),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+        norm=Norm.BATCH,
+    )
+
 def unet256(num_classes=6):
     return UNet(
         spatial_dims=3,

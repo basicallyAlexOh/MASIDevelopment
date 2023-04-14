@@ -12,7 +12,7 @@ import pandas as pd
 import math
 import numpy as np
 from dataloader import infer_dataloader, npy_test_loader
-from models import unet512
+from models import unet512, unet256, unet128, unet64
 import torch
 import nibabel as nib
 from monai.utils import set_determinism
@@ -97,8 +97,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Setup
-    CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
-    config_id = "emp_nlst"
+    CONFIG_DIR = "/home/local/VANDERBILT/ohas/Desktop/Programming/new_lobe/lobe_seg/configs/"
+    config_id = "0303Alex"
     config = load_config(f"Config_{config_id}.YAML", CONFIG_DIR)
 
     data_dir = config["data_dir"]
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         infer_loader = infer_dataloader(config, images)
 
     # load model
-    model = unet512(6).to(device)
+    model = unet256(6).to(device)
     model.load_state_dict(torch.load(model_path))
 
     # csv for qualitatively grading inferences (sensitivity analysis)

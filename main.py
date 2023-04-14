@@ -16,7 +16,7 @@ import argparse
 from pathlib import Path
 import MetricLogger
 from dataloader import train_dataloader, val_dataloader, test_dataloader, npy_train_loader
-from models import unet256, unet512, unet1024, unetr16
+from models import unet64, unet128, unet256, unet512, unet1024, unetr16
 from scheduler import WarmupCosineSchedule
 from train import train
 from test import test
@@ -71,6 +71,10 @@ def run_train(config, config_id):
         model = unet1024(6).to(device)
     elif config["model"] == 'unetr16':
         model = unetr16(6).to(device)
+    elif config["model"] == 'unet128':
+        model = unet128(6).to(device)
+    elif config["model"] == 'unet64':
+        model = unet64(6).to(device)
     else:
         model = unet256(6).to(device)
     # loss_function = DiceLoss(include_background=config["include_bg_loss"], to_onehot_y=True, softmax=True)
@@ -143,8 +147,15 @@ def run_test(config, config_id, out_name, output_seg=False, output_clip=False):
         model = unet1024(6).to(device)
     elif config["model"] == 'unetr16':
         model = unetr16(6).to(device)
+    elif config["model"] == 'unet128':
+        model = unet128(6).to(device)
+    elif config["model"] == 'unet64':
+        model = unet64(6).to(device)
+    elif config["model"] == 'unet256':
+        model = unet256(6).to(device)
     else:
         model = unet256(6).to(device)
+
     # Set metric to compute average over each class
     test_metric = DiceMetric(include_background=False, reduction="none")
 
@@ -174,7 +185,7 @@ if __name__ == "__main__":
     parser.add_argument('--output-clip', action='store_true', default=False)
     args = parser.parse_args()
 
-    CONFIG_DIR = "/home/local/VANDERBILT/litz/github/MASILab/lobe_seg/configs"
+    CONFIG_DIR = "/home/local/VANDERBILT/ohas/Desktop/Programming/new_lobe/lobe_seg/configs"
     config = load_config(f"Config_{args.config_id}.YAML", CONFIG_DIR)
 
     if args.train:

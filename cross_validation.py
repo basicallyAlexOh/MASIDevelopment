@@ -15,7 +15,7 @@ import random
 from pathlib import Path
 import MetricLogger
 from dataloader import train_dataloader, val_dataloader, test_dataloader
-from models import unet256, unet512, unet1024
+from models import unet64, unet128, unet256, unet512, unet1024
 from train import train
 from test import test
 from luna16_preprocess import get_kfolds
@@ -63,6 +63,10 @@ def train_one_fold(config, config_id, k):
         model = unet1024(6).to(device)
     elif config["model"] == 'unetr16':
         model = unetr16(6).to(device)
+    elif config["model"] == 'unet128':
+        model = unet128(6).to(device)
+    elif config["model"] == 'unet64':
+        model = unet64(6).to(device)
     else:
         model = unet256(6).to(device)
     # loss_function = DiceLoss(include_background=config["include_bg_loss"], to_onehot_y=True, softmax=True)
